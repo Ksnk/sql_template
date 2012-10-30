@@ -38,6 +38,45 @@
 - join - объединить значения массива, используя символ-разделитель. Символ должен быть в кавычках.
 
 
+##benchmarking
 
+Сравнивать шаблонизатор, вероятно, нужно с ближайшим конкурентом - pdo.
 
+Сравниваются такие операции
 
+    for($i=0;$i<self::MAX_REPEAT_NUMBER;$i++){
+        $func = $this->sql->parse('set names {{?}} ; -- comment '.$i);
+        $this->pdo->exec($func('utf8'));
+    }
+
+и
+
+    for($i=0;$i<self::MAX_REPEAT_NUMBER;$i++){
+        $sth = $this->pdo->prepare('set names :code; -- comment'.$i);
+        $sth->bindValue(':code','utf8', PDO::PARAM_STR);
+        $sth->execute();
+    }
+
+Тоесть, 1000 раз выполняется запрос `set names utf8` оттранслированный шаблонизатором и отпрепарированный pdo.
+Результат выполнения - шаблонизатор проигрывает, примерно  0.644124 против 0.477978 секунд. Впрочем, результат предсказуем. Парсинг в pdo делается не в php. Хотя могли бы выиграть и побольше.
+
+Другой тест, "отпрепарированные" запросы, показывает значительно более забавные результаты
+
+    $func = $this->sql->parse('set names {{?}} ;');
+    $time=microtime(true);
+    for($i=0;$i<self::MAX_REPEAT_NUMBER;$i++){
+        $this->pdo->exec($func('utf8'));
+    }
+    $time1=microtime(true)-$time;
+
+и
+
+    $sth = $this->pdo->prepare('set names :code');
+    $time=microtime(true);
+    for($i=0;$i<self::MAX_REPEAT_NUMBER;$i++){
+        $sth->bindValue(':code','utf8', PDO::PARAM_STR);
+        $sth->execute();
+    }
+    $time2=microtime(true)-$time;
+
+На 1000 выполнений приходится 0.330789 против 0.353897 секунд. Выходит, что шаблонизатор + exec даже несколько эффективнее, чем prepare+BindParam+execute для большого количества однотипных запросов.

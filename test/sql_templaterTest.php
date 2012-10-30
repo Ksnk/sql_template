@@ -16,6 +16,28 @@ include ('header.inc.php');
 
 class sqltemplate_baseTest extends PHPUnit_Framework_TestCase
 {
+
+    function test_escapedvalue(){
+        $sql = new sql_template();
+        $func = $sql->parse('SELECT * FROM ?_user WHERE user_id={{?}}');
+        $this->assertEquals('SELECT * FROM ?_user WHERE user_id=\'\\\\/#?@1`12\"4\'', $func('\\/#?@1`12"4'));
+    }
+
+    function test_join_Template(){
+        $sql = new sql_template();
+        $func = $sql->parse('SELECT name FROM tbl WHERE id IN({{?|join(\',\')}})');
+        $this->assertEquals("SELECT name FROM tbl WHERE id IN(1,101,303)", $func(
+            array(1, 101, 303)));
+    }
+
+    function test_prefix_Template(){
+        $sql = new sql_template();
+        $sql->setval('prefix','mixnfix') ;
+        $func = $sql->parse('SELECT * FROM {{prefix}}_user LIMIT 10 ');
+        $this->assertEquals("SELECT * FROM mixnfix_user LIMIT 10 ", $func(
+            array('one' => 'one_value', 'two' => 'two_value')));
+    }
+
     function test_insert_set_Template()
     {
         $sql = new sql_template();

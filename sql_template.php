@@ -14,6 +14,8 @@
  */
 class sql_template
 {
+
+    static $escape = 'mysql_escape_string' ;// TODO : только на время тестирования
     /**
      * внутренний кэш класса. Служит для простенькой оптимизации при повторном выполнении запросов
      * @var array
@@ -45,6 +47,12 @@ class sql_template
     protected $filtersReg;
 
     /**
+     * массиив переменных
+     * @var array
+     */
+    protected $variables;
+
+    /**
      * функция выдчи ошибки - недоразвита и, вероятно, не нужна.
      * @param $msg
      */
@@ -54,7 +62,7 @@ class sql_template
     }
 
     static function escape($s){
-        return mysql_escape_string($s);  //TODO: только для тестов!!
+        return call_user_func(self::$escape,$s);
     }
 
     /**
@@ -63,7 +71,6 @@ class sql_template
     public function __construct()
     {
         $this->filters = array(
-            'escape' => 'mysql_escape_string(%s)', //'mysql_real_escape_string(%s)', //TODO: только для тестов!!
             'noescape' => array($this, 'filter_noescape'),
             'keys' => 'array_keys(%s)',
             'values' => 'array_values(%s)',
@@ -88,6 +95,20 @@ class sql_template
             $this->filtersReg[$key] = $filter;
         else
             $this->filters[$key] = $filter;
+    }
+
+    /**
+     * возможность установки переменных
+     * @param $key
+     * @param $filter
+     */
+    public function setval($key, $value)
+    {
+        if(is_string($value))
+            $this->variables[$key] = $this->escape($value);
+        else {
+            $this->error('unsupported too complex values');
+        }
     }
 
     /** ************************************** фильтры ************************************* */
@@ -146,9 +167,10 @@ class sql_template
     public static function _runtime_join($s, $delim)
     {
         foreach ($s as &$v) {
-            if (!ctype_digit($v))
-                $v = "'" . addcslashes(self::escape($v), "'") . "'"; //TODO: только для тестов!!
+            if (!is_int($v))
+                $v = "'" . addcslashes(self::escape($v), "'") . "'";
         }
+        unset($v);
         return implode($delim, $s);
     }
 
@@ -162,8 +184,11 @@ class sql_template
     private function parse_placeholders($found)
     {
         $list = explode('|', $found[1]);
+        $list[0]=trim($list[0]);
+        $this->noescape = false;
+        //$result = 'UNSUPPORTED';
         // so argument
-        if (preg_match('/^\s*\?(\d*)\s*$/', $list[0], $m)) {
+        if (preg_match('/^\?(\d*)$/', $list[0], $m)) {
             $argument_number = $this->current_arg_number;
             if (!empty($m[1])) {
                 if ($this->current_arg_number <= $m[1])
@@ -172,12 +197,15 @@ class sql_template
             } else {
                 $this->current_arg_number++;
             }
+            $result = '$_' . $argument_number;
+        } else if(array_key_exists($list[0],$this->variables)) {
+            $this->noescape=true;
+            $result = $this->variables[$list[0]];
         } else {
             $this->error(sprintf('unsupported argument "%s"', $m[1]));
             return '"UNSUPPORTED"';
         }
-        $result = '$_' . $argument_number;
-        $this->noescape = false;
+
         for ($i = 1; $i < count($list); $i++) {
             $filter = trim($list[$i]);
             if (array_key_exists($filter, $this->filters)) {
@@ -200,7 +228,7 @@ class sql_template
             }
         }
         if (!$this->noescape) {
-            $result = $result = call_user_func($this->filters['escape'], $result);
+            $result = '"\'".'.self::$escape.'('. $result.')."\'"';
         }
         $this->placeholders[] = $result;
         return "@" . count($this->placeholders) . "@";
@@ -233,8 +261,8 @@ class sql_template
             $args[] = '$_' . $i;
 
        // echo "return '" . $result . "';\n\n";
-
-        return create_function(implode(',', $args), "return '" . $result . "';");
+        self::$cache[$sql]= create_function(implode(',', $args), "return '" . $result . "';");
+        return self::$cache[$sql];
     }
 
 }
