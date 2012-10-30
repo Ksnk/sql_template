@@ -42,7 +42,7 @@ class benchmark extends PHPUnit_Framework_TestCase
         //$sth = $this->pdo->prepare('set names :code');
         $time=microtime(true);
         for($i=0;$i<self::MAX_REPEAT_NUMBER;$i++){
-            $sth = $this->pdo->prepare('set names :code; -- comment'.$i);
+            $sth = $this->pdo->prepare('set names :code; -- comment '.$i);
             $sth->bindValue(':code','utf8', PDO::PARAM_STR);
             $sth->execute();
         }
@@ -74,10 +74,7 @@ class benchmark extends PHPUnit_Framework_TestCase
         printf("so spent %f sec for sql, %f sec for pdo\n"
             , $time1, $time2);
         $this->assertTrue(true);
-
     }
-
-
 }
 
 if (!defined('PHPUnit_MAIN_METHOD')) {

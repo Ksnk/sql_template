@@ -11,6 +11,12 @@
 
 /**
  * класс служит для парсинга и для импорта новых фильтров в шаблон sql
+ *
+ *
+ * 30.10.2012
+ * so spent 0.644670 sec for sql, 0.467067 sec for pdo
+ * so spent 0.340801 sec for sql, 0.354356 sec for pdo
+
  */
 class sql_template
 {
@@ -181,9 +187,9 @@ class sql_template
      * @return string
      */
 
-    private function parse_placeholders($found)
+    private function parse_stm($found)
     {
-        $list = explode('|', $found[1]);
+        $list = explode('|', $found);
         $list[0]=trim($list[0]);
         $this->noescape = false;
         //$result = 'UNSUPPORTED';
@@ -230,13 +236,7 @@ class sql_template
         if (!$this->noescape) {
             $result = '"\'".'.self::$escape.'('. $result.')."\'"';
         }
-        $this->placeholders[] = $result;
-        return "@" . count($this->placeholders) . "@";
-    }
-
-    function placeholders_back($m)
-    {
-        return "'." . $this->placeholders[$m[1] - 1] . ".'";
+        return $result;
     }
 
     /**
@@ -253,15 +253,38 @@ class sql_template
         if (array_key_exists($sql, self::$cache))
             return self::$cache[$sql];
         $this->placeholders = array();
-        $result = preg_replace_callback('/{{(.*?)}}/', array($this, 'parse_placeholders'), $sql);
-        $result = addcslashes($result, "'");
-        $result = preg_replace_callback('/@(\d+)@/', array($this, 'placeholders_back'), $result);
+        // замена preg_replace на цикл со строковым сканированием
+        $offset=0;
+        $result=array();
+        while(true){
+            $pos=strpos($sql,'{{',$offset);
+            if($pos!==false){
+                if($pos>$offset){
+                    $result[]="'".addcslashes(substr($sql,$offset,$pos-$offset), "'")."'";
+                }
+                $offset=$pos+2;
+                $pos=strpos($sql,'}}',$offset);
+                if($pos!==false){
+                    if($pos>$offset){
+                        $result[]=$this->parse_stm(substr($sql,$offset,$pos-$offset));
+                    }
+                    $offset=$pos+2;
+                } else {
+                    $this->error('wtf?');
+                }
+            } else {
+                if(strlen($sql)>$offset)
+                    $result[]="'".addcslashes(substr($sql,$offset), "'")."'";
+                break;
+            }
+
+        }
         $args = array();
         for ($i = 1; $i < $this->current_arg_number; $i++)
             $args[] = '$_' . $i;
 
        // echo "return '" . $result . "';\n\n";
-        self::$cache[$sql]= create_function(implode(',', $args), "return '" . $result . "';");
+        self::$cache[$sql]= create_function(implode(',', $args), "return " . implode('.', $result) . ";");
         return self::$cache[$sql];
     }
 
