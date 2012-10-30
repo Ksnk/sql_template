@@ -16,7 +16,15 @@ include ('header.inc.php');
 
 class sqltemplate_baseTest extends PHPUnit_Framework_TestCase
 {
-    function test_ArrayTemplate()
+    function test_insert_set_Template()
+    {
+        $sql = new sql_template();
+        $func = $sql->parse('insert into xxx set {{?|pair}} ;');
+        $this->assertEquals("insert into xxx set `one`=\"one_value\",`two`=\"two_value\" ;", $func(
+            array('one' => 'one_value', 'two' => 'two_value')));
+    }
+
+    function test_insert_key_valuesTemplate()
     {
         $sql = new sql_template();
         $func = $sql->parse('insert into xxx ({{?|keys|join(",")}}) values ({{?1|values|join(",")}}) ;');

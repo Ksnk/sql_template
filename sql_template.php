@@ -53,6 +53,10 @@ class sql_template
         echo $msg;
     }
 
+    static function escape($s){
+        return mysql_escape_string($s);  //TODO: только для тестов!!
+    }
+
     /**
      * заполнение фильтров
      */
@@ -65,6 +69,7 @@ class sql_template
             'values' => 'array_values(%s)',
             'int' => array($this, 'filter_int'),
             'float' => array($this, 'filter_float'),
+            'pair' => array($this, 'filter_pair'),
         );
         $this->filtersReg = array(
             '/^join$/' => array($this, 'filter_join'),
@@ -114,7 +119,23 @@ class sql_template
     }
 
     /**
-     * реализация фильтра noescape
+     * filter_pair - формат пар в виде `key`='value'
+     */
+    private function filter_pair($s){
+        $this->noescape = true; // будем ескейпить каждый элемент по отдельности.
+        return __CLASS__ . '::_runtime_pair(' . $s . ')';
+    }
+
+    public static function _runtime_pair($s)
+    {
+        $result=array();
+        foreach ($s as $k=>$v) {
+            $result[]=sprintf('`%s`="%s"',self::escape($k),self::escape($v));
+        }
+        return implode(',',$result);
+    }
+    /**
+     * реализация фильтра filter_join
      */
     private function filter_join($s, $match)
     {
@@ -126,7 +147,7 @@ class sql_template
     {
         foreach ($s as &$v) {
             if (!ctype_digit($v))
-                $v = "'" . addcslashes(mysql_escape_string($v), "'") . "'"; //TODO: только для тестов!!
+                $v = "'" . addcslashes(self::escape($v), "'") . "'"; //TODO: только для тестов!!
         }
         return implode($delim, $s);
     }
@@ -210,6 +231,9 @@ class sql_template
         $args = array();
         for ($i = 1; $i < $this->current_arg_number; $i++)
             $args[] = '$_' . $i;
+
+       // echo "return '" . $result . "';\n\n";
+
         return create_function(implode(',', $args), "return '" . $result . "';");
     }
 
