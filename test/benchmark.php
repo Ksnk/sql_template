@@ -25,7 +25,7 @@ class benchmark extends PHPUnit_Framework_TestCase
         if(!empty($this->sql))
             return ;
 
-        $this->sql = new sql_template;
+        $this->sql = sql_template::getInstance();
     }
 
     function testPrepareStatements1000times()

@@ -17,3 +17,4 @@ define('SYSTEM_PATH', dirname(dirname(__FILE__)));
 //define('ROOT_URI','/projects/cms/build/web/index.php');
 
 include_once (SYSTEM_PATH . "/sql_template.php");
+include_once (SYSTEM_PATH . "/test/sql_child.php");

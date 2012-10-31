@@ -4,9 +4,11 @@
  * Код обязан получать параметры, как обычно
  * ->query(sql,$one,$two,$three)
  * получится
- * $func= sql_template::parce(sql);
- * mysql_query(call_user_func_array($func,$one,$two,$three))
- * по дороге доступно кэширование
+ * $sqltpl=sql_template::getInstance();
+ * $func= $sqltpl->parse(sql);
+ * $args=func_get_args();
+ * $result= mysql_query(call_user_func_array($func,array_shift($args)));
+ * есть рудиментарное кэширование для повторных шаблонов.
  */
 
 /**
@@ -16,12 +18,26 @@
  * 30.10.2012
  * so spent 0.644670 sec for sql, 0.467067 sec for pdo
  * so spent 0.340801 sec for sql, 0.354356 sec for pdo
-
  */
 class sql_template
 {
+    /**
+     * @var sql_template - singleton instance
+     */
+    private static $instance;
 
+    /**
+     * @var string - имя класса - наследника, ежели кому придет в голову переопределить функционал
+     * Для этого достаточно переопределить имя класса у  sql_template::$className
+     */
+    public static $className=__CLASS__;
+
+    /**
+     * для простоты замены функции эскейпинга
+     * @var string
+     */
     static $escape = 'mysql_escape_string' ;// TODO : только на время тестирования
+
     /**
      * внутренний кэш класса. Служит для простенькой оптимизации при повторном выполнении запросов
      * @var array
@@ -33,14 +49,10 @@ class sql_template
      * @var int
      */
     private $current_arg_number = 1;
-    /**
-     * для аккуратного обслешивания строки нужно сначала менять на плейсхолдеры, затем менять обратно
-     * @var array
-     */
-    private $placeholders = array();
+    private $args_count = 1;
 
     /**
-     * внутренний флаг фильтра - нужно вставлять real_escape или уже не нужно
+     * внутренний флаг фильтра - нужно вставлять escape в конце или уже не нужно
      * @var
      */
     protected $noescape;
@@ -50,31 +62,55 @@ class sql_template
      * @var array
      */
     protected $filters;
+
+    /**
+     * массиив фильтров, определеных регуляркой - фильтры с параметрами
+     * @var array
+     */
     protected $filtersReg;
 
     /**
-     * массиив переменных
+     * массив переменных, для явной подстановки в запрос
      * @var array
      */
     protected $variables;
 
     /**
-     * функция выдчи ошибки - недоразвита и, вероятно, не нужна.
+     * функция выдачи ошибки. Просто бросим Exception и пусть весь мир подождет.
      * @param $msg
      */
     protected function error($msg)
     {
-        echo $msg;
+        throw new Exception ($msg);
     }
 
-    static function escape($s){
+    /**
+     * внутренняя функция
+     * @static
+     * @param $s
+     * @return mixed
+     */
+    protected static function escape($s){
         return call_user_func(self::$escape,$s);
+    }
+
+    /**
+     * Синглтон, он и в Африке - синглтон.
+     * @static
+     * @return sql_template
+     */
+    public static function getInstance(){
+        if(null===self::$instance){
+            $class=self::$className;
+            self::$instance =new $class();
+        }
+        return  self::$instance;
     }
 
     /**
      * заполнение фильтров
      */
-    public function __construct()
+    protected function __construct()
     {
         $this->filters = array(
             'noescape' => array($this, 'filter_noescape'),
@@ -91,7 +127,7 @@ class sql_template
     }
 
     /**
-     * возможность стороннего экспорта фильтров
+     * добавить новый фильтр в комплект фильтров. Если начинается с / - cчитается регуляркой
      * @param $key
      * @param $filter
      */
@@ -194,16 +230,16 @@ class sql_template
         $this->noescape = false;
         //$result = 'UNSUPPORTED';
         // so argument
+        $this->args_count=0;
         if (preg_match('/^\?(\d*)$/', $list[0], $m)) {
             $argument_number = $this->current_arg_number;
             if (!empty($m[1])) {
-                if ($this->current_arg_number <= $m[1])
-                    $this->current_arg_number++;
                 $argument_number = $m[1];
             } else {
                 $this->current_arg_number++;
             }
             $result = '$_' . $argument_number;
+            if($argument_number>$this->args_count)$this->args_count=$argument_number;
         } else if(array_key_exists($list[0],$this->variables)) {
             $this->noescape=true;
             $result = $this->variables[$list[0]];
@@ -280,12 +316,18 @@ class sql_template
 
         }
         $args = array();
-        for ($i = 1; $i < $this->current_arg_number; $i++)
+        for ($i = 1; $i <= $this->args_count; $i++)
             $args[] = '$_' . $i;
 
-       // echo "return '" . $result . "';\n\n";
-        self::$cache[$sql]= create_function(implode(',', $args), "return " . implode('.', $result) . ";");
-        return self::$cache[$sql];
+        //echo "return '" . implode('.', $result) . "';\n\n";
+        $fnc = @create_function(implode(',', $args), "return " . implode('.', $result) . ";");
+        if (empty($fnc)) {
+            $this->error(sprintf('Could not create function \nfunction(%s){\n\t%s\n}\n.',
+                implode(',', $args), "return " . implode('.', $result)
+            ));
+        }
+        self::$cache[$sql]= $fnc;
+        return $fnc;
     }
 
 }

@@ -17,30 +17,36 @@ include ('header.inc.php');
 class sqltemplate_baseTest extends PHPUnit_Framework_TestCase
 {
 
-    function test_escapedvalue(){
-        $sql = new sql_template();
-        $func = $sql->parse('SELECT * FROM ?_user WHERE user_id={{?}}');
-        $this->assertEquals('SELECT * FROM ?_user WHERE user_id=\'\\\\/#?@1`12\"4\'', $func('\\/#?@1`12"4'));
-    }
-
-    function test_join_Template(){
-        $sql = new sql_template();
-        $func = $sql->parse('SELECT name FROM tbl WHERE id IN({{?|join(\',\')}})');
-        $this->assertEquals("SELECT name FROM tbl WHERE id IN(1,101,303)", $func(
-            array(1, 101, 303)));
-    }
-
     function test_prefix_Template(){
-        $sql = new sql_template();
+        $sql = sql_template::getInstance();
         $sql->setval('prefix','mixnfix') ;
         $func = $sql->parse('SELECT * FROM {{prefix}}_user LIMIT 10 ');
         $this->assertEquals("SELECT * FROM mixnfix_user LIMIT 10 ", $func(
             array('one' => 'one_value', 'two' => 'two_value')));
     }
 
+    function test_child(){
+        $sql = sql_template::getInstance();
+        $func = $sql->parse('SELECT * FROM ?_user WHERE user_id={{?|somefilter}}');
+        $this->assertEquals('SELECT * FROM ?_user WHERE user_id=\'nothing here!\'', $func('\\/#?@1`12"4'));
+    }
+
+    function test_escapedvalue(){
+        $sql = sql_template::getInstance();
+        $func = $sql->parse('SELECT * FROM ?_user WHERE user_id={{?}}');
+        $this->assertEquals('SELECT * FROM ?_user WHERE user_id=\'\\\\/#?@1`12\"4\'', $func('\\/#?@1`12"4'));
+    }
+
+    function test_join_Template(){
+        $sql = sql_template::getInstance();
+        $func = $sql->parse('SELECT name FROM tbl WHERE id IN({{?|join(\',\')}})');
+        $this->assertEquals("SELECT name FROM tbl WHERE id IN(1,101,303)", $func(
+            array(1, 101, 303)));
+    }
+
     function test_insert_set_Template()
     {
-        $sql = new sql_template();
+        $sql = sql_template::getInstance();
         $func = $sql->parse('insert into xxx set {{?|pair}} ;');
         $this->assertEquals("insert into xxx set `one`=\"one_value\",`two`=\"two_value\" ;", $func(
             array('one' => 'one_value', 'two' => 'two_value')));
@@ -48,7 +54,7 @@ class sqltemplate_baseTest extends PHPUnit_Framework_TestCase
 
     function test_insert_key_valuesTemplate()
     {
-        $sql = new sql_template();
+        $sql = sql_template::getInstance();
         $func = $sql->parse('insert into xxx ({{?|keys|join(",")}}) values ({{?1|values|join(",")}}) ;');
         $this->assertEquals("insert into xxx ('one','two') values ('one_value','two_value') ;", $func(
             array('one' => 'one_value', 'two' => 'two_value')));
@@ -56,11 +62,19 @@ class sqltemplate_baseTest extends PHPUnit_Framework_TestCase
 
     function test_IntTemplate()
     {
-        $sql = new sql_template();
+        $sql = sql_template::getInstance();
         $func = $sql->parse('select * from index where {{?|int}}<`field`;');
 
         $this->assertEquals("select * from index where 25<`field`;", $func(25));
     }
+
+    function test_manyargs(){
+        $sql = sql_template::getInstance();
+        $func = $sql->parse('{{?}}-1 {{?3}}-3 {{?}} - 2 {{?}} -3');
+        $this->assertEquals("'1'-1 '3'-3 '2' - 2 '3' -3", $func(
+            1,2,3));
+    }
+
 }
 
 if (!defined('PHPUnit_MAIN_METHOD')) {
