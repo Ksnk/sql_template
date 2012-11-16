@@ -5,8 +5,11 @@
 
 class sql_child extends sql_template {
 
-    protected function __construct(){
+    static $sql_template = 'mysql_escape_string';
+
+    public function __construct(){
         parent::__construct();
+        parent::$escape = 'mysql_escape_string';
         $this->filters['somefilter']=array($this,'filter_somefilter');
         $this->filters['faked']=array($this,'filter_faked');
     }
@@ -22,4 +25,4 @@ class sql_child extends sql_template {
 }
 
 /** а так они размножаюццо  */
-sql_template::$className='sql_child';
+//sql_template::$className='sql_child';

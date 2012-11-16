@@ -1,5 +1,15 @@
 <?php
 /**
+ * трансляция sql шаблонов
+ * <%=point('hat','jscomment');
+
+
+
+
+
+%>
+ */
+/**
  * Задачей класса является трансляция строки SQL в код функции для create_function.
  * Код обязан получать параметры, как обычно
  * ->query(sql,$one,$two,$three)
@@ -21,22 +31,12 @@
  */
 class sql_template
 {
-    /**
-     * @var sql_template - singleton instance
-     */
-    private static $instance;
-
-    /**
-     * @var string - имя класса - наследника, ежели кому придет в голову переопределить функционал
-     * Для этого достаточно переопределить имя класса у  sql_template::$className
-     */
-    public static $className=__CLASS__;
 
     /**
      * для простоты замены функции эскейпинга
      * @var string
      */
-    static $escape = 'mysql_escape_string' ;// TODO : только на время тестирования
+    static $escape = 'mysql_real_escape_string';
 
     /**
      * внутренний кэш класса. Служит для простенькой оптимизации при повторном выполнении запросов
@@ -70,6 +70,11 @@ class sql_template
     protected $filtersReg;
 
     /**
+     * массив констант, которые вставляются в строку без эскейпинга
+     * @var array
+     */
+    protected $constant;
+    /**
      * массив переменных, для явной подстановки в запрос
      * @var array
      */
@@ -90,27 +95,15 @@ class sql_template
      * @param $s
      * @return mixed
      */
-    protected static function escape($s){
-        return call_user_func(self::$escape,$s);
-    }
-
-    /**
-     * Синглтон, он и в Африке - синглтон.
-     * @static
-     * @return sql_template
-     */
-    public static function getInstance(){
-        if(null===self::$instance){
-            $class=self::$className;
-            self::$instance =new $class();
-        }
-        return  self::$instance;
+    protected static function escape($s)
+    {
+        return call_user_func(self::$escape, $s);
     }
 
     /**
      * заполнение фильтров
      */
-    protected function __construct()
+    public function __construct()
     {
         $this->filters = array(
             'noescape' => array($this, 'filter_noescape'),
@@ -118,11 +111,14 @@ class sql_template
             'values' => 'array_values(%s)',
             'int' => array($this, 'filter_int'),
             'float' => array($this, 'filter_float'),
-            'pair' => array($this, 'filter_pair'),
+            'pair' => array($this, 'filter_format'),
+//            'format' => array($this, 'filter_format'),
         );
         $this->filtersReg = array(
             '/^join$/' => array($this, 'filter_join'),
             '/^join\s*\(([^\)]+)\)$/' => array($this, 'filter_join'),
+            '/^pair\s*$/' => array($this, 'filter_format'),
+            '/^format\s*\(([^\),]+)(?:,([^\)]+))?\)$/' => array($this, 'filter_format'),
         );
     }
 
@@ -144,10 +140,24 @@ class sql_template
      * @param $key
      * @param $filter
      */
-    public function setval($key, $value)
+    public function regcns($key, $value)
     {
-        if(is_string($value))
-            $this->variables[$key] = $this->escape($value);
+        if (is_string($value) || is_int($value))
+            $this->constant[$key] = $value;
+        else {
+            $this->error('unsupported too complex values');
+        }
+    }
+
+    /**
+     * возможность установки переменных
+     * @param $key
+     * @param $filter
+     */
+    public function regvar($key, &$value)
+    {
+        if (is_string($value))
+            $this->variables[$key] = $value;
         else {
             $this->error('unsupported too complex values');
         }
@@ -184,19 +194,25 @@ class sql_template
     /**
      * filter_pair - формат пар в виде `key`='value'
      */
-    private function filter_pair($s){
+    private function filter_format($s, $match=array())
+//$format='`%s`="%s"',$join=',')
+    {
+        if(!isset($match[1])) $match[1]='\'`%s`="%s"\'';
+        if(!isset($match[2])) $match[2]='\',\'';
         $this->noescape = true; // будем ескейпить каждый элемент по отдельности.
-        return __CLASS__ . '::_runtime_pair(' . $s . ')';
+        return __CLASS__ . '::_runtime_format(' . $s
+            . ','.$match[1].','.$match[2].')';
     }
 
-    public static function _runtime_pair($s)
+    public static function _runtime_format($s,$format,$join)
     {
-        $result=array();
-        foreach ($s as $k=>$v) {
-            $result[]=sprintf('`%s`="%s"',self::escape($k),self::escape($v));
+        $result = array();
+        foreach ($s as $k => $v) {
+            $result[] = sprintf($format, self::escape($k), self::escape($v));
         }
-        return implode(',',$result);
+        return implode($join, $result);
     }
+
     /**
      * реализация фильтра filter_join
      */
@@ -210,7 +226,7 @@ class sql_template
     {
         foreach ($s as &$v) {
             if (!is_int($v))
-                $v = "'" . addcslashes(self::escape($v), "'") . "'";
+                $v = "'" . addcslashes(self::escape($v), "'\\") . "'";
         }
         unset($v);
         return implode($delim, $s);
@@ -226,23 +242,33 @@ class sql_template
     private function parse_stm($found)
     {
         $list = explode('|', $found);
-        $list[0]=trim($list[0]);
+        $name = trim($list[0]);
         $this->noescape = false;
-        //$result = 'UNSUPPORTED';
+        $result = 'UNSUPPORTED';
         // so argument
-        $this->args_count=0;
-        if (preg_match('/^\?(\d*)$/', $list[0], $m)) {
+        $this->args_count = 0;
+        if (preg_match('/^\?(\d*)$/', $name, $m)) {
             $argument_number = $this->current_arg_number;
             if (!empty($m[1])) {
-                $argument_number = $m[1];
+                $argument_number = $m[1]+1;
             } else {
                 $this->current_arg_number++;
             }
             $result = '$_' . $argument_number;
-            if($argument_number>$this->args_count)$this->args_count=$argument_number;
-        } else if(array_key_exists($list[0],$this->variables)) {
-            $this->noescape=true;
-            $result = $this->variables[$list[0]];
+            if ($argument_number > $this->args_count) $this->args_count = $argument_number;
+        } else if (array_key_exists($name, $this->constant)) {
+            $this->noescape = true;
+            if(!empty($this->constant[$name])){
+                if($this->constant[$name]{0}=="'"){
+                    $result=$this->constant[$name];
+                } else {
+                    $result = "'" . addcslashes($this->constant[$name], "'\\") . "'";
+                }
+            }
+        } else if (array_key_exists($name, $this->variables)) {
+            $this->noescape = true;
+            if ($this->variables[$name]{0})
+                $result = "'" . addcslashes($this->variables[$name], "'\\") . "'";
         } else {
             $this->error(sprintf('unsupported argument "%s"', $m[1]));
             return '"UNSUPPORTED"';
@@ -252,6 +278,7 @@ class sql_template
             $filter = trim($list[$i]);
             if (array_key_exists($filter, $this->filters)) {
                 if (is_string($this->filters[$filter])) {
+                    $this->noescape = true;
                     $result = sprintf($this->filters[$filter], $result);
                 } elseif (is_callable($this->filters[$filter])) {
                     $result = call_user_func($this->filters[$filter], $result);
@@ -270,7 +297,7 @@ class sql_template
             }
         }
         if (!$this->noescape) {
-            $result = '"\'".'.self::$escape.'('. $result.')."\'"';
+            $result = '"\'".' . self::$escape . '(' . $result . ')."\'"';
         }
         return $result;
     }
@@ -282,35 +309,35 @@ class sql_template
      */
     function parse($sql)
     {
-        // старт трансляции
-        $this->current_arg_number = 1;
-        $this->parsed_arguments = '';
-
         if (array_key_exists($sql, self::$cache))
             return self::$cache[$sql];
+        // старт трансляции
+        $this->current_arg_number = 2;
+        $this->parsed_arguments = '';
+
         $this->placeholders = array();
         // замена preg_replace на цикл со строковым сканированием
-        $offset=0;
-        $result=array();
-        while(true){
-            $pos=strpos($sql,'{{',$offset);
-            if($pos!==false){
-                if($pos>$offset){
-                    $result[]="'".addcslashes(substr($sql,$offset,$pos-$offset), "'")."'";
+        $offset = 0;
+        $result = array();
+        while (true) {
+            $pos = strpos($sql, '{{', $offset);
+            if ($pos !== false) {
+                if ($pos > $offset) {
+                    $result[] = "'" . addcslashes(substr($sql, $offset, $pos - $offset), "'\\") . "'";
                 }
-                $offset=$pos+2;
-                $pos=strpos($sql,'}}',$offset);
-                if($pos!==false){
-                    if($pos>$offset){
-                        $result[]=$this->parse_stm(substr($sql,$offset,$pos-$offset));
+                $offset = $pos + 2;
+                $pos = strpos($sql, '}}', $offset);
+                if ($pos !== false) {
+                    if ($pos > $offset) {
+                        $result[] = $this->parse_stm(substr($sql, $offset, $pos - $offset));
                     }
-                    $offset=$pos+2;
+                    $offset = $pos + 2;
                 } else {
                     $this->error('wtf?');
                 }
             } else {
-                if(strlen($sql)>$offset)
-                    $result[]="'".addcslashes(substr($sql,$offset), "'")."'";
+                if (strlen($sql) > $offset)
+                    $result[] = "'" . addcslashes(substr($sql, $offset), "'\\") . "'";
                 break;
             }
 
@@ -319,14 +346,14 @@ class sql_template
         for ($i = 1; $i <= $this->args_count; $i++)
             $args[] = '$_' . $i;
 
-        //echo "return '" . implode('.', $result) . "';\n\n";
+        //echo "function( " .implode(',', $args)."){ return ".implode('.', $result) . ";}\n\n";
         $fnc = @create_function(implode(',', $args), "return " . implode('.', $result) . ";");
         if (empty($fnc)) {
             $this->error(sprintf('Could not create function \nfunction(%s){\n\t%s\n}\n.',
                 implode(',', $args), "return " . implode('.', $result)
             ));
         }
-        self::$cache[$sql]= $fnc;
+        self::$cache[$sql] = $fnc;
         return $fnc;
     }
 
