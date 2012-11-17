@@ -346,7 +346,7 @@ class sql_template
         for ($i = 1; $i <= $this->args_count; $i++)
             $args[] = '$_' . $i;
 
-        echo "function( " .implode(',', $args)."){ return ".implode('.', $result) . ";}\n\n";
+        //echo "function( " .implode(',', $args)."){ return ".implode('.', $result) . ";}\n\n";
         $fnc = @create_function(implode(',', $args), "return " . implode('.', $result) . ";");
         if (empty($fnc)) {
             $this->error(sprintf('Could not create function \nfunction(%s){\n\t%s\n}\n.',
