@@ -1,11 +1,9 @@
 <?php
 /**
- * попытка проверить "наследуемость" синглтона
+ * класс-наследник шаблонизатора для использования в Юнит-тестах.
  */
 
 class sql_child extends sql_template {
-
-    static $sql_template = 'mysql_escape_string';
 
     public function __construct(){
         parent::__construct();
@@ -19,7 +17,7 @@ class sql_child extends sql_template {
     }
 
     function filter_faked($s) {
-        return '"nothing here!' ; // return unquoted string, so cerate_function will fail
+        return '"nothing here!' ; // return unquoted string, so create_function will fail
     }
 
 }

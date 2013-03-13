@@ -73,12 +73,12 @@ class sql_template
      * массив констант, которые вставляются в строку без эскейпинга
      * @var array
      */
-    protected $constant;
+    protected $constant=array();
     /**
      * массив переменных, для явной подстановки в запрос
      * @var array
      */
-    protected $variables;
+    protected $variables=array();
 
     /**
      * функция выдачи ошибки. Просто бросим Exception и пусть весь мир подождет.
@@ -117,6 +117,7 @@ class sql_template
         $this->filtersReg = array(
             '/^join$/' => array($this, 'filter_join'),
             '/^join\s*\(([^\)]+)\)$/' => array($this, 'filter_join'),
+            '/^default\s*\(([^\)]+)\)$/' => array($this, 'filter_default'),
             '/^pair\s*$/' => array($this, 'filter_format'),
             '/^format\s*\(([^\),]+)(?:,([^\)]+))?\)$/' => array($this, 'filter_format'),
         );
@@ -214,12 +215,27 @@ class sql_template
     }
 
     /**
+     * реализация фильтра filter_default
+     */
+    private function filter_default($s, $match)
+    {
+        $this->noescape = true; // будем ескейпить каждый элемент по отдельности.
+        return __CLASS__ . '::_runtime_default(' . $s . ',' . (!isset($match[1]) ? '""' : $match[1]) . ')';
+    }
+
+    public static function _runtime_default($s, $default)
+    {
+        if(empty($s)) return $default;
+        return $s;
+    }
+
+    /**
      * реализация фильтра filter_join
      */
     private function filter_join($s, $match)
     {
         $this->noescape = true; // будем ескейпить каждый элемент по отдельности.
-        return __CLASS__ . '::_runtime_join(' . $s . ',' . (empty($match[1]) ? '""' : $match[1]) . ')';
+        return __CLASS__ . '::_runtime_join(' . $s . ',' . (!isset($match[1]) ? '""' : $match[1]) . ')';
     }
 
     public static function _runtime_join($s, $delim)
@@ -230,6 +246,22 @@ class sql_template
         }
         unset($v);
         return implode($delim, $s);
+    }
+
+    /** ************************************ парсинг ************************************* */
+
+    /**
+     * парсинг управляющих конструкций.
+     * for list in ?
+     * for key,value in ?
+     * for value in [1..20]
+     * @param $found
+     * @return string
+     */
+
+    private function parse_control($found)
+    {
+
     }
 
     /** ************************************ парсинг ************************************* */
@@ -270,7 +302,7 @@ class sql_template
             if ($this->variables[$name]{0})
                 $result = "'" . addcslashes($this->variables[$name], "'\\") . "'";
         } else {
-            $this->error(sprintf('unsupported argument "%s"', $m[1]));
+            $this->error(sprintf('unsupported argument "%s"', $found));
             return '"UNSUPPORTED"';
         }
 
@@ -313,23 +345,25 @@ class sql_template
             return self::$cache[$sql];
         // старт трансляции
         $this->current_arg_number = 2;
-        $this->parsed_arguments = '';
 
-        $this->placeholders = array();
         // замена preg_replace на цикл со строковым сканированием
         $offset = 0;
         $result = array();
         while (true) {
-            $pos = strpos($sql, '{{', $offset);
-            if ($pos !== false) {
+            if (preg_match('#{([{%])#',$sql, $m, PREG_OFFSET_CAPTURE, $offset)) {
+                $ch=($m[1][0]=='{'?'}':'%');
+                $pos=$m[0][1];
                 if ($pos > $offset) {
                     $result[] = "'" . addcslashes(substr($sql, $offset, $pos - $offset), "'\\") . "'";
                 }
                 $offset = $pos + 2;
-                $pos = strpos($sql, '}}', $offset);
-                if ($pos !== false) {
+                $pos = strpos($sql, $ch.'}', $offset);
+                if (false!==$pos) {
                     if ($pos > $offset) {
-                        $result[] = $this->parse_stm(substr($sql, $offset, $pos - $offset));
+                        if($ch!='%')
+                            $result[] = $this->parse_stm(substr($sql, $offset, $pos - $offset));
+                        else
+                            $result[] = $this->parse_stm(substr($sql, $offset, $pos - $offset));
                     }
                     $offset = $pos + 2;
                 } else {
@@ -342,15 +376,18 @@ class sql_template
             }
 
         }
-        $args = array();
-        for ($i = 1; $i <= $this->args_count; $i++)
-            $args[] = '$_' . $i;
+        $args = '$_1';
+        for ($i = 2; $i <= $this->args_count; $i++)
+            $args.= ',$_' . $i;
 
         //echo "function( " .implode(',', $args)."){ return ".implode('.', $result) . ";}\n\n";
-        $fnc = @create_function(implode(',', $args), "return " . implode('.', $result) . ";");
+        $fnc = @create_function($args
+            , "return " . implode('.', $result) . ";");
         if (empty($fnc)) {
             $this->error(sprintf('Could not create function \nfunction(%s){\n\t%s\n}\n.',
-                implode(',', $args), "return " . implode('.', $result)
+                $args,
+                implode("\n", $result).
+                "\nreturn " . implode('.', $result)
             ));
         }
         self::$cache[$sql] = $fnc;

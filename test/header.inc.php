@@ -10,7 +10,7 @@
 /**
  * определение путей системы
  */
-//define('INDEX_DIR',__DIR__);
+//define('INDEX_DIR',dirname(__FILE__));
 define('SYSTEM_PATH', dirname(dirname(__FILE__)));
 //define('SITE_PATH',SYSTEM_PATH);
 //define('TEMPLATE_PATH',realpath(SITE_PATH.'/template/'));
