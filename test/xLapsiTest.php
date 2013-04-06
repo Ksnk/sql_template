@@ -12,21 +12,23 @@
     }
 
     include ('header.inc.php');
-    include_once (SYSTEM_PATH . "/xDatabase.php");
 
-class xTest extends xDatabaseLapsi{
-    function escape($s){
-        return mysql_escape_string($s);
-    }
-}
+
 
 class xLapsiTest extends PHPUnit_Framework_TestCase
 {
 
     function getXDatabase(){
         static $xDatabase=null;
-        if(is_null($xDatabase))
-            $xDatabase=new xTest('noinit');
+        if(is_null($xDatabase)) {
+            $data=preg_replace(array('/^\s*<\?php/','/\?>\s*^/'),array(''),
+                str_replace('mysql_real_escape_string','mysql_escape_string',
+                    file_get_contents(SYSTEM_PATH . "/xDatabase.php")
+                ));
+            eval($data);
+            $xDatabase=new xDatabaseLapsi('noinit');
+        }
+
         return $xDatabase;
     }
 

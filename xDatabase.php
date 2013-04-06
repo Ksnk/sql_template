@@ -17,15 +17,6 @@
  */
 class xDatabase_parent
 {
-    /**
-     * для оперативной подмены в случае тестирования
-     * @param $s
-     * @return string
-     */
-    function escape($s){
-        return  mysql_real_escape_string($s);
-    }
-
     /** @var bool - флаг - нужно ли инициализироваться на старте. Устанавливать соединение и так далее... */
     protected $_init = true;
 
@@ -429,11 +420,18 @@ class xDatabaseLapsi extends xDatabase_parent
      *  ?(...) - параметр - массив, для каждой кары ключ-значение массива
      *      применяется формат из скобок. Разделяются запятыи
      *
-     * @example
-     *    - ->_('insert into ?k (?(?k)) values (?2(?v))','x_table'
-     *          ,array('one'=>1,'two'=>1))
-     *    - ->_('update ?k set ?(?k=?) where `id`=?d','x_table'
-     *          ,array('one'=>1,'two'=>1),5)
+     * @example 
+     * простой insert
+     *    - $db->_(array('insert into ?k (?(?k)) values (?2(?2))','x_table'
+     *           ,array('one'=>1,'two'=>2,'three'=>'облом'))) 
+     *     ==> insert into `x_table` (`one`,`two`,`three`) values (1,2,"облом")
+     *  
+     * insert on duplicate key
+     *    - $db->_(array('insert into ?k (?(?k)) values (?2(?2))
+     *      on duplicate key set ?2(?k=?)','x_table'
+     *      ,array('one'=>1,'two'=>2,'three'=>'облом')))
+     *     ==> insert into `x_table` (`one`,`two`,`three`) values (1,2,"облом")
+     *      on duplicate key set `one`=1,`two`=2,`three`="облом"
      *
      * генерация простыни
      *   - $x=array(
@@ -465,7 +463,7 @@ class xDatabaseLapsi extends xDatabase_parent
                 if (is_int($args[$cur]) || ctype_digit($args[$cur]))
                     $x = (0 + $args[$cur]);
                 else
-                    $x = '"' . $this->escape($args[$cur]) . '"';
+                    $x = '"' . mysql_real_escape_string($args[$cur]) . '"';
             } else switch ($m[2][0]) {
                 case '_':
                     if (!isset($pref))
@@ -480,10 +478,10 @@ class xDatabaseLapsi extends xDatabase_parent
                     $x = $args[$cur];
                     break;
                 case 'k':
-                    $x = '`' . $this->escape($args[$cur]) . '`';
+                    $x = '`' . mysql_real_escape_string($args[$cur]) . '`';
                     break;
                 case 's':
-                    $x = '"' . $this->escape($args[$cur]) . '"';
+                    $x = '"' . mysql_real_escape_string($args[$cur]) . '"';
                     break;
                 default: //()
                     if (is_array($args[$cur])) {
