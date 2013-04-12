@@ -13,6 +13,48 @@
  */
 
 /**
+ * класс, возвращаемый в ответ на длинный select
+ */
+class dbIterator implements Iterator {
+    private $position = 0;
+    private $dbresult =null;
+    private $data=null;
+
+    public function __construct($dbresult) {
+        $this->dbresult=$dbresult ;
+        $this->position = 0;
+    }
+
+    function rewind() {
+        $this->data=mysql_fetch_assoc($this->dbresult);
+        $this->position = 0;
+    }
+
+    function current() {
+        return $this->data;
+    }
+
+    function key() {
+        return $this->position;
+    }
+
+    function next() {
+        $this->data=mysql_fetch_assoc($this->dbresult);
+    }
+
+    function valid() {
+        return is_array($this->data);
+    }
+
+    public function __destruct() {
+        if(is_resource($this->dbresult))
+            mysql_free_result($this->dbresult);
+    }
+
+}
+
+
+/**
  * общий наследник всех базоданческих драйверов
  */
 class xDatabase_parent
@@ -23,10 +65,10 @@ class xDatabase_parent
     /** @var int - счетчик выполненных запросов */
     protected $q_count = 0;
 
-    /** @var null|resource - сопроводительна переменная - линк работы с открытой базой */
+    /** @var null|resource - сопроводительная переменная - линк работы с открытой базой */
     protected $db_link = NULL;
 
-    /** @var string -временная еременная для хранения ключа кэша*/
+    /** @var string -временная переменная для хранения ключа кэша*/
     protected $cachekey = '';
 
     /**
@@ -156,6 +198,17 @@ class xDatabase_parent
         }
         $this->free($result);
         return $this->cache($this->cachekey, $res);
+    }
+
+    /**
+     * Выбрать все из большого запроса, вернуть итератор.
+     */
+    function selectLong($query)
+    {
+        $result = $this->_query(func_get_args(), false); // не кэшировать большие запросы
+        if (!is_resource($result))
+            return $result;
+        return new dbIterator($result);
     }
 
     /**
@@ -290,7 +343,7 @@ class xDatabase extends xDatabase_parent
  */
 class xDatabaseXilen extends xDatabase_parent
 {
-    public $debug = false;
+    protected $_debug = false;
     private $tpl = null;
 
     function __construct()
@@ -333,7 +386,7 @@ class xDatabaseXilen extends xDatabase_parent
  */
 class xDatabaseLapsi extends xDatabase_parent
 {
-    private $_debug = false;
+    protected $_debug = false;
     /** @var bool|Memcache */
     private $mcache = false;
     public $_cache = true;
@@ -383,14 +436,23 @@ class xDatabaseLapsi extends xDatabase_parent
      */
     protected function _query($arg, $cached = false)
     {
-        if ($cached) {
-            $this->cachekey = ENGINE::option('cache.prefix', 'xx') . md5($arg[0]);
-            if (false !== ($result = $this->cache($this->cachekey)))
-                return $result;
+        if(1===$this->_once){
+            $this->_once=false;
+        }if(true===$this->_once){
+            $this->_once=1;
         }
-        ;
+        $sql = $this->_($arg);
+        if ($cached) {
+            $this->cachekey = ENGINE::option('cache.prefix', 'xx') . md5($sql);
+            if (false !== ($result = $this->cache($this->cachekey))){
+                if ($this->_debug) {
+                    ENGINE::debug('QUERY(cache): <pre>' . $sql . '</pre><hr/>');
+                }
+                return $result;
+            }
+        }
         //ENGINE::debug( 222/* ,$this->db_link */);
-        $result = mysql_query($sql = $this->_($arg) /* , $this->db_link */);
+        $result = mysql_query($sql /* , $this->db_link */);
         if (!$result) {
             ENGINE::error('Invalid query: ' . mysql_error() . "\n" .
                 'Whole query: ' . $sql);
@@ -417,8 +479,8 @@ class xDatabaseLapsi extends xDatabase_parent
      *      делается mysql_real_escape_string
      *  ? - анализируется значение, для чисел не вставляются кавычки,
      *      для строк делается ескейп
-     *  ?(...) - параметр - массив, для каждой кары ключ-значение массива
-     *      применяется формат из скобок. Разделяются запятыи
+     *  ?(...) - параметр - массив, для каждой пары ключ-значение массива
+     *      применяется формат из скобок. Разделяются запятыми
      *
      * @example 
      * простой insert
@@ -453,7 +515,7 @@ class xDatabaseLapsi extends xDatabase_parent
         $format = $args[0];
         $cnt = 1;
         $start = 0;
-        while (preg_match('/(?<!\\\\)\?(\d*)(i|d|x|k|_|s|\(([^\)]+)\)|)/i'
+        while (preg_match('/(?<!\\\\)\?(\d*)(i|d|x|k|_|s|\(([^\)]+)\)|\[([^\)]+)\]|)/i'
             , $format, $m, PREG_OFFSET_CAPTURE, $start)
         ) {
             $x = '';
@@ -478,16 +540,18 @@ class xDatabaseLapsi extends xDatabase_parent
                     $x = $args[$cur];
                     break;
                 case 'k':
-                    $x = '`' . mysql_real_escape_string($args[$cur]) . '`';
+                    $x = '`' . str_replace("`","``",$args[$cur]) . '`';
                     break;
                 case 's':
                     $x = '"' . mysql_real_escape_string($args[$cur]) . '"';
                     break;
                 default: //()
                     if (is_array($args[$cur])) {
+                        if(empty($args[$cur]))
+                            return 'MULL';
                         $s = array();
                         foreach ($args[$cur] as $k => $v)
-                            $s[] = $this->_(array($m[3][0], $k, $v));
+                            $s[] = $this->_(array($m[3][0].$m[4][0], $k, $v));
                         $x = implode(',', $s);
                     }
             }

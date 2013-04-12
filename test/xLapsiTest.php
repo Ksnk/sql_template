@@ -18,7 +18,7 @@
 class xLapsiTest extends PHPUnit_Framework_TestCase
 {
 
-    function getXDatabase(){
+    function getXDatabase($option=''){
         static $xDatabase=null;
         if(is_null($xDatabase)) {
             $data=preg_replace(array('/^\s*<\?php/','/\?>\s*^/'),array(''),
@@ -28,6 +28,8 @@ class xLapsiTest extends PHPUnit_Framework_TestCase
             eval($data);
             $xDatabase=new xDatabaseLapsi('noinit');
         }
+        if(!empty($option))
+           $xDatabase->set_option($option);
 
         return $xDatabase;
     }
@@ -42,7 +44,7 @@ class xLapsiTest extends PHPUnit_Framework_TestCase
     function testXDatabase2(){
         $db=$this->getXDatabase();
         $this->assertEquals('update `x_table` set `one`=1,`two`=2,`three`="облом" where `id`=5',
-            $db->_(array('update ?k set ?(?k=?) where `id`=?d','x_table'
+            $db->_(array('update ?k set ?[?k=?] where `id`=?d','x_table'
             ,array('one'=>1,'two'=>2,'three'=>'облом'),'5')));
     }
 
@@ -50,8 +52,8 @@ class xLapsiTest extends PHPUnit_Framework_TestCase
         $db=$this->getXDatabase();
         $this->assertEquals('insert into `x_table` (`one`,`two`,`three`) values (1,2,"облом")
             on duplicate key set `one`=1,`two`=2,`three`="облом"',
-            $db->_(array('insert into ?k (?(?k)) values (?2(?2))
-            on duplicate key set ?2(?k=?)','x_table'
+            $db->_(array('insert into ?k (?[?k]) values (?2(?2))
+            on duplicate key set ?2[?k=?]','x_table'
             ,array('one'=>1,'two'=>2,'three'=>'облом'))));
     }
 
@@ -59,8 +61,8 @@ class xLapsiTest extends PHPUnit_Framework_TestCase
         $db=$this->getXDatabase();
         $this->assertEquals('insert into `x_table` (`one`,`two`,`three`) values (1,2,"облом")
             on duplicate key set `one`=values.`one`,`two`=values.`two`,`three`=values.`three`',
-            $db->_(array('insert into ?k (?(?k)) values (?2(?2))
-            on duplicate key set ?2(?k=values.?1k)','x_table'
+            $db->_(array('insert into ?k (?(?k)) values (?2[?2])
+            on duplicate key set ?2[?k=values.?1k]','x_table'
             ,array('one'=>1,'two'=>2,'three'=>'облом')))
         );
     }
@@ -89,9 +91,21 @@ class xLapsiTest extends PHPUnit_Framework_TestCase
  ,(1,2,3)
  ,(1,2,3)
  ;',
-             $db->_(array('insert into ?k (?(?k))
+             $db->_(array('insert into ?k (?[?k])
  values ?3(?2x);','table',$x[0],$part)));
     }
+
+    function testDebug4(){
+        $db=$this->getXDatabase();
+        $this->assertEquals('insert into `x_table` (`one`,`two`,`three`) values (1,2,"облом")
+            on duplicate key set `one`=values.`one`,`two`=values.`two`,`three`=values.`three`',
+            $db->_(array('insert into ?k (?[?k]) values (?2[?2])
+            on duplicate key set ?2[?k=values.?1k]','x_table'
+            ,array('one'=>1,'two'=>2,'three'=>'облом')))
+        );
+    }
+
+
 
 }
 

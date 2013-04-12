@@ -9,11 +9,28 @@ class ENGINE {
 
     ) ;
 
-    static function option($name){
+    static function &db($option=''){
+        /** @var xDatabaseLapsi */
+        static $db;
+        if(!isset($db)){
+            $aliace=self::option('engine.aliaces');
+            $class=$aliace['Database'];
+            $db= new $class();
+        }
+        if(!empty($option))
+            $db->set_option($option);
+        return $db;
+    }
+
+    static function set_option($option){
+        self::$options=array_merge(self::$options,$option);
+    }
+
+    static function option($name,$default=''){
         if(array_key_exists($name,self::$options)){
-            return self::$options;
+            return self::$options[$name];
         }  else {
-            return '';
+            return $default;
         }
     }
     static function debug($msg){
