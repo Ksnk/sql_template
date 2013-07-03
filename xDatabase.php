@@ -13,6 +13,66 @@
  */
 
 /**
+ * класс, собирающий длинный insertValues
+ */
+class dbInsertValues {
+
+    /** @var string */
+    private $sql_start='', $sql_finish='';
+
+    /** @var xDatabaseLapsi */
+    private $parentDb;
+
+    /** @var array */
+    private $result_values=array();
+
+    /** @var int - длина результирующего запроса */
+    private $result_length=0;
+
+    /** @var int */
+    private $max_result_length=32000;
+
+    /**
+     * @param $start
+     * @param $finish
+     */
+    public function __construct($start,$finish) {
+        $this->sql_start=$start;
+        $this->sql_finish=$finish;
+        $this->result_length=strlen($start)+strlen($finish);
+    }
+
+    /**
+     * @param array $values
+     */
+    public function insert($values){
+        $v=$this->parentDb->_(array_unshift($values,'(?[?2])'));
+        $this->result_length+=strlen($v)+1;
+        if($this->result_length>$this->max_result_length){
+            $this->flush();
+        }
+        $this->result_values[] = $v;
+    }
+
+    /**
+     * выполнение запроса
+     */
+    public function flush(){
+        if(count($this->result_values)>0){
+            $this->parentDb->query($this->sql_start
+                .implode(',',$this->result_values)
+                .$this->sql_finish
+            );
+            $this->result_values=array();
+        }
+    }
+
+    function __destruct (){
+        $this->flush();
+    }
+}
+
+/**
  * класс, возвращаемый в ответ на длинный select
  */
 class dbIterator implements Iterator {
@@ -93,7 +153,7 @@ class xDatabase_parent
     }
 
     /**
-     * установить параметры. Параметры ставятся в виде строки слова через пробел.
+     * установить параметры. Параметры ставятся в виде строки со словами через пробел.
      * параметр - внутреняя переменная класса с именем `_параметр`
      * в природе бывают параметры
      * - init(*), noinit
@@ -144,7 +204,7 @@ class xDatabase_parent
         $result = $this->_query(func_get_args(), true);
         if (!is_resource($result))
             return $result;
-        $rows = $this->fetch_row($result);
+        $rows = mysql_fetch_row($result);
         $this->free($result);
         if (!$rows)
             return false;
@@ -162,7 +222,7 @@ class xDatabase_parent
         if (!is_resource($result))
             return $result;
         $res = array();
-        while ($row = $this->fetch_row($result)) {
+        while ($row = mysql_fetch_row($result)) {
             $res[] = $row[0];
         }
         $this->free($result);
@@ -179,9 +239,21 @@ class xDatabase_parent
         $result = $this->_query(func_get_args(), true);
         if (!is_resource($result))
             return $result;
-        $rows = $this->fetch_assoc($result);
+        $rows = mysql_fetch_assoc($result);
         $this->free($result);
         return $this->cache($this->cachekey, $rows);
+    }
+
+    function selectAll($query){
+        $result = $this->_query(func_get_args(), true);
+        if (!is_resource($result))
+            return $result;
+        $res = array();
+        while ($row = mysql_fetch_assoc($result)) {
+            $res[] = $row;
+        }
+        $this->free($result);
+        return $this->cache($this->cachekey, $res);
     }
 
     /**
@@ -193,7 +265,7 @@ class xDatabase_parent
         if (!is_resource($result))
             return $result;
         $res = array();
-        while ($row = $this->fetch_assoc($result)) {
+        while ($row = mysql_fetch_assoc($result)) {
             $res[] = $row;
         }
         $this->free($result);
@@ -209,6 +281,22 @@ class xDatabase_parent
         if (!is_resource($result))
             return $result;
         return new dbIterator($result);
+    }
+    /**
+     * Выбрать все из запроса, вернуть массив с инлексами.
+     */
+    function selectByInd($idx,$query)
+    {
+        $result = $this->_query(func_get_args(), true);
+        if (!is_resource($result))
+            return $result;
+        $res = array();
+        while ($row = mysql_fetch_assoc($result)) {
+            if(!empty($row[$idx]))
+                $res[$row[$idx]] = $row;
+        }
+        $this->free($result);
+        return $this->cache($this->cachekey, $res);
     }
 
     /**
@@ -286,36 +374,6 @@ class xDatabase_parent
     }
 
     /******************************************************************************
-     * mysql специфика
-     */
-    public function num_rows($result)
-    {
-        return (int)mysql_num_rows($result);
-    }
-
-    /******************************************************************************
-     * fetch_assoc
-     */
-    public function fetch_assoc($result)
-    {
-        if (is_resource($result))
-            return mysql_fetch_assoc($result);
-        else
-            return array();
-    }
-
-    /******************************************************************************
-     * fetch_row
-     */
-    public function fetch_row($result)
-    {
-        if (is_resource($result))
-            return mysql_fetch_row($result);
-        else
-            return array();
-    }
-
-    /******************************************************************************
      * free
      */
     function free($handle)
@@ -353,7 +411,7 @@ class xDatabaseXilen extends xDatabase_parent
         $this->tpl->regcns('prefix', ENGINE::option('database.prefix', 'xsite'));
         $this->tpl->regcns('CODE', ENGINE::option('database.code', 'UTF8'));
         if ($this->_init) {
-            $this->query("SET NAMES '{{CODE}}'");
+            $this->query("SET NAMES {{CODE}}");
         }
     }
 
@@ -387,8 +445,9 @@ class xDatabaseXilen extends xDatabase_parent
 class xDatabaseLapsi extends xDatabase_parent
 {
     protected $_debug = false;
+    protected $_once = false;
     /** @var bool|Memcache */
-    private $mcache = false;
+   // private $mcache = false;
     public $_cache = true;
     private $c_count=0;
 
@@ -396,13 +455,13 @@ class xDatabaseLapsi extends xDatabase_parent
     {
         if (!$this->_cache) return $data;
         if (false === $data) {
-            if (FALSE !== ($result = $this->mcache->get($name))) {
+            if (FALSE !== ($result = ENGINE::cache($name))) {
                 $this->c_count += 1;
                 return unserialize($result);
             }
             return false;
         } else  {
-            $this->mcache->set($name,serialize($data), MEMCACHE_COMPRESSED,$time);
+            ENGINE::cache($name,serialize($data), $time);
         }
         return $data;
     }
@@ -410,7 +469,7 @@ class xDatabaseLapsi extends xDatabase_parent
     /**
      * вывод финального репорта про количество запросов.
      */
-    function report($format="%s(%s) queries")
+    function report($format="mysql:[%s(%s) queries] ")
     {
         return sprintf($format, $this->q_count, $this->c_count);
     }
@@ -419,11 +478,13 @@ class xDatabaseLapsi extends xDatabase_parent
     {
         parent::__construct($option);
         $this->prefix = ENGINE::option('database.prefix', 'xsite');
-        if ($this->_init) {
-            $this->query("SET NAMES '" . ENGINE::option('database.code', 'UTF8') . "'");
+        if( ENGINE::option('database.debug')){
+           $this->_debug=true;
         }
-        $this->mcache = new Memcache;
-        $this->mcache->connect('localhost', 11211);
+
+        if ($this->_init) {
+            $this->query("SET NAMES " . ENGINE::option('database.code', 'UTF8') . ";");
+        }
     }
 
     /**
@@ -443,10 +504,10 @@ class xDatabaseLapsi extends xDatabase_parent
         }
         $sql = $this->_($arg);
         if ($cached) {
-            $this->cachekey = ENGINE::option('cache.prefix', 'xx') . md5($sql);
+            $this->cachekey = ENGINE::option('cache.prefix', 'x') . md5($sql);
             if (false !== ($result = $this->cache($this->cachekey))){
                 if ($this->_debug) {
-                    ENGINE::debug('QUERY(cache): <pre>' . $sql . '</pre><hr/>');
+                    ENGINE::debug('QUERY(cache): ' . $sql . "\n",'~function|_query','~shift|1');
                 }
                 return $result;
             }
@@ -460,7 +521,7 @@ class xDatabaseLapsi extends xDatabase_parent
             $this->q_count += 1;
         }
         if ($this->_debug) {
-            ENGINE::debug('QUERY: <pre>' . $sql . '</pre><hr/>');
+            ENGINE::debug("QUERY:\n" . $sql . "\n",'~function|_query','~shift|1');
         }
 
         return $result;
@@ -479,7 +540,7 @@ class xDatabaseLapsi extends xDatabase_parent
      *      делается mysql_real_escape_string
      *  ? - анализируется значение, для чисел не вставляются кавычки,
      *      для строк делается ескейп
-     *  ?(...) - параметр - массив, для каждой пары ключ-значение массива
+     *  ?[...] - параметр - массив, для каждой пары ключ-значение массива
      *      применяется формат из скобок. Разделяются запятыми
      *
      * @example 
@@ -494,6 +555,10 @@ class xDatabaseLapsi extends xDatabase_parent
      *      ,array('one'=>1,'two'=>2,'three'=>'облом')))
      *     ==> insert into `x_table` (`one`,`two`,`three`) values (1,2,"облом")
      *      on duplicate key set `one`=1,`two`=2,`three`="облом"
+     *  - $db->query(
+     *      'insert into `laptv_video` (`LASTUPDATE`,?[?k]) values (NOW(),?1[?2])'.
+     *      'on duplicate key update  `LASTUPDATE`=NOW(),?1[?1k=VALUES(?1k)];'
+     *      ,$data);
      *
      * генерация простыни
      *   - $x=array(
@@ -515,14 +580,20 @@ class xDatabaseLapsi extends xDatabase_parent
         $format = $args[0];
         $cnt = 1;
         $start = 0;
-        while (preg_match('/(?<!\\\\)\?(\d*)(i|d|x|k|_|s|\(([^\)]+)\)|\[([^\)]+)\]|)/i'
+        while (preg_match('/(?<!\\\\)\?(\d*)(i|d|\#|a|y|x|k|_|s|\(([^\)]+)\)|\[([^\]]+)\]|)/i'
             , $format, $m, PREG_OFFSET_CAPTURE, $start)
         ) {
             $x = '';
             $cur = $m[1][0];
             if (empty($cur)) $cur = $cnt++;
             if (empty($m[2][0])) {
-                if (is_int($args[$cur]) || ctype_digit($args[$cur]))
+                if(''===$args[$cur])
+                    $x = '""';
+                elseif(0===$args[$cur])
+                    $x = 0;
+                elseif (empty($args[$cur]))
+                    $x = 'NULL';
+                elseif (is_int($args[$cur]) || ctype_digit($args[$cur]))
                     $x = (0 + $args[$cur]);
                 else
                     $x = '"' . mysql_real_escape_string($args[$cur]) . '"';
@@ -530,6 +601,7 @@ class xDatabaseLapsi extends xDatabase_parent
                 case '_':
                     if (!isset($pref))
                         $pref = ENGINE::option('database.prefix', 'xxx_');
+                    if(empty($m[1][0]))$cnt--;
                     $x = $pref;
                     break;
                 case 'i':
@@ -545,14 +617,30 @@ class xDatabaseLapsi extends xDatabase_parent
                 case 's':
                     $x = '"' . mysql_real_escape_string($args[$cur]) . '"';
                     break;
+                case 'y':
+                    $x = mysql_real_escape_string($args[$cur]);
+                    break;
                 default: //()
+                    $explode=',';
+                    if($m[2][0]=='a'){ // ?a
+                        reset($args[$cur]);
+                        if(key($args[$cur]))
+                            $tpl='?k=?';
+                        else
+                            $tpl='?2';
+                    } else if($m[2][0]=='#'){ //?#
+                        $tpl='?2k';
+                    } else {  // массив в параметрах
+                        $tpl=$m[3][0];if(!empty($m[4][0]))$tpl.=$m[4][0];
+                        list($tpl,$explode,$none)=explode('|',$tpl.'|,||');
+                    }
                     if (is_array($args[$cur])) {
                         if(empty($args[$cur]))
-                            return 'MULL';
+                            return 'NULL';
                         $s = array();
                         foreach ($args[$cur] as $k => $v)
-                            $s[] = $this->_(array($m[3][0].$m[4][0], $k, $v));
-                        $x = implode(',', $s);
+                            $s[] = $this->_(array($tpl, $k, $v));
+                        $x = implode($explode, $s);
                     }
             }
             $format = substr($format, 0, $m[0][1]) . $x . substr($format, $m[2][1] + strlen($m[2][0]));

@@ -3,12 +3,26 @@
  * Класс - затычка для тестирования
  */
 
+if(!defined('__')){
+    function __(&$x,$default=''){
+        if(empty($x)) return $default;
+        return $x;
+    }
+}
 class ENGINE {
 
     public static $options=array(
 
     ) ;
 
+    function cache($name, $data = false)
+    {
+        return $data;
+    }
+    /**
+     * @param string $option
+     * @return xDatabaseLapsi
+     */
     static function &db($option=''){
         /** @var xDatabaseLapsi */
         static $db;

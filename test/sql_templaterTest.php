@@ -7,7 +7,7 @@
  * To change this template use File | Settings | File Templates.
  */
 
-if (!defined('PHPUnit_MAIN_METHOD')) {
+if (!function_exists('phpunit_autoload')) {
     ini_set('include_path', ini_get('include_path') . PATH_SEPARATOR . dirname(dirname(__FILE__)));
     require 'PHPUnit/Autoload.php';
 }

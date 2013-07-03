@@ -6,7 +6,7 @@
  * Time: 10:19
  * To change this template use File | Settings | File Templates.
  */
-    if (!defined('PHPUnit_MAIN_METHOD')) {
+    if (!function_exists('phpunit_autoload')) {
         ini_set('include_path', ini_get('include_path') . PATH_SEPARATOR . dirname(dirname(__FILE__)));
         require 'PHPUnit/Autoload.php';
     }
@@ -20,14 +20,15 @@ class xLapsiTest extends PHPUnit_Framework_TestCase
 
     function getXDatabase($option=''){
         static $xDatabase=null;
-        if(is_null($xDatabase)) {
+        if(!class_exists('xDatabaseLapsi')) {
             $data=preg_replace(array('/^\s*<\?php/','/\?>\s*^/'),array(''),
                 str_replace('mysql_real_escape_string','mysql_escape_string',
                     file_get_contents(SYSTEM_PATH . "/xDatabase.php")
                 ));
             eval($data);
-            $xDatabase=new xDatabaseLapsi('noinit');
         }
+        if(empty($xDatabase))
+            $xDatabase=new xDatabaseLapsi('noinit');
         if(!empty($option))
            $xDatabase->set_option($option);
 
@@ -104,8 +105,14 @@ class xLapsiTest extends PHPUnit_Framework_TestCase
             ,array('one'=>1,'two'=>2,'three'=>'облом')))
         );
     }
-
-
+    function testDebug5(){
+        $db=$this->getXDatabase();
+        $this->assertEquals('select `x_table` where `id` in (1,2,"облом") order by field(`id`,1,2,"облом")',
+            $db->_(array('select ?k where `id` in (?[?2]) order by field(`id`,?2[?2])'
+            ,'x_table'
+            ,array('one'=>1,'two'=>2,'three'=>'облом')))
+        );
+    }
 
 }
 
